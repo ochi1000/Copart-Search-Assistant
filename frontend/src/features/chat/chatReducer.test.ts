@@ -35,4 +35,21 @@ describe("chatReducer", () => {
     expect(state.messages[0].text).toBe("I found one vehicle.");
     expect(state.messages[0].search?.vehicles[0].image_url).toContain("camry.jpg");
   });
+
+  it("stores and clears a remote verification session", () => {
+    const verifying = chatReducer(initialChatState, {
+      type: "verification_required",
+      verification: {
+        live_url: "https://browser.example/live/session",
+        expires_in_seconds: 90,
+      },
+    });
+
+    expect(verifying.status).toBe("verification");
+    expect(verifying.verification?.live_url).toContain("browser.example");
+
+    const resumed = chatReducer(verifying, { type: "verification_completed" });
+    expect(resumed.status).toBe("searching");
+    expect(resumed.verification).toBeUndefined();
+  });
 });

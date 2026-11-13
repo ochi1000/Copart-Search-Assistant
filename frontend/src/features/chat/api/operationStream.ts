@@ -3,12 +3,13 @@ import type {
   CompletedResult,
   OperationEvent,
   PublicApiError,
+  VerificationRequired,
 } from "../chatTypes";
 
 interface StreamHandlers {
   onThinking: () => void;
   onSearchStarted: () => void;
-  onVerificationRequired: () => void;
+  onVerificationRequired: (verification: VerificationRequired) => void;
   onVerificationCompleted: () => void;
   onCompleted: (result: CompletedResult) => void;
   onFailed: (error: PublicApiError) => void;
@@ -27,10 +28,12 @@ export function openOperationStream(
 
   stream.addEventListener("thinking", handlers.onThinking);
   stream.addEventListener("search_started", handlers.onSearchStarted);
-  stream.addEventListener(
-    "verification_required",
-    handlers.onVerificationRequired,
-  );
+  stream.addEventListener("verification_required", (event) => {
+    const verification = payload<VerificationRequired>(
+      event as MessageEvent<string>,
+    );
+    handlers.onVerificationRequired(verification.data);
+  });
   stream.addEventListener(
     "verification_completed",
     handlers.onVerificationCompleted,

@@ -1,6 +1,7 @@
 import unittest
+import os
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from playwright.async_api import async_playwright
 
@@ -232,6 +233,64 @@ class FilterModelTests(unittest.TestCase):
             vehicles,
         )
         self.assertEqual(warnings, [])
+
+
+class BrowserProviderTests(unittest.IsolatedAsyncioTestCase):
+    def test_browserless_connection_url_encodes_secrets_and_profile(self):
+        with patch.dict(
+            os.environ,
+            {
+                "BROWSER_PROVIDER": "browserless",
+                "BROWSERLESS_TOKEN": "token+with/slash",
+                "BROWSERLESS_PROFILE": "copart demo",
+                "BROWSERLESS_ENDPOINT": "wss://production-sfo.browserless.io",
+                "BROWSERLESS_SESSION_TIMEOUT_MS": "120000",
+            },
+            clear=False,
+        ):
+            browser = BrowserEngine()
+
+        url = browser._browserless_ws_url()
+        self.assertIn("token=token%2Bwith%2Fslash", url)
+        self.assertIn("profile=copart+demo", url)
+        self.assertIn("timeout=120000", url)
+
+    async def test_browserless_live_url_is_interactive_and_short_lived(self):
+        with patch.dict(
+            os.environ,
+            {
+                "BROWSER_PROVIDER": "browserless",
+                "BROWSERLESS_TOKEN": "test-token",
+                "BROWSERLESS_LIVE_TIMEOUT_MS": "90000",
+            },
+            clear=False,
+        ):
+            browser = BrowserEngine()
+
+        cdp = SimpleNamespace(
+            send=AsyncMock(return_value={
+                "liveURL": "https://browser.example/live/session",
+                "liveURLId": "live-1",
+                "timeout": 85000,
+            }),
+            detach=AsyncMock(),
+        )
+        context = SimpleNamespace(new_cdp_session=AsyncMock(return_value=cdp))
+        page = SimpleNamespace(context=context)
+
+        live_url, live_url_id, timeout_ms = (
+            await browser._create_browserless_live_url(page)
+        )
+
+        self.assertEqual(live_url, "https://browser.example/live/session")
+        self.assertEqual(live_url_id, "live-1")
+        self.assertEqual(timeout_ms, 85000)
+        command, options = cdp.send.await_args.args
+        self.assertEqual(command, "Browserless.liveURL")
+        self.assertTrue(options["interactable"])
+        self.assertEqual(options["timeout"], 90000)
+        self.assertEqual(options["instructions"]["layout"], "panel")
+        cdp.detach.assert_awaited_once()
 
     def test_query_backed_vehicle_type_does_not_create_false_warning(self):
         constraints = VehicleFilterConstraints(

@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+.venv
+.run
+.copart-profile
+__pycache__
+*.pyc
+debug.log*
+frontend
+tests

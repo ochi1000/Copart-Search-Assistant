@@ -4,7 +4,7 @@ import re
 import time
 import uuid
 from typing import Callable, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from playwright.async_api import async_playwright
 from dotenv import load_dotenv
 
@@ -25,6 +25,37 @@ class BrowserEngine:
             self.headless = os.getenv("HEADLESS", "True").lower() == "true"
         else:
             self.headless = headless
+
+        self.provider = os.getenv("BROWSER_PROVIDER", "local").strip().lower()
+        if self.provider not in {"local", "browserless"}:
+            raise RuntimeError(
+                "BROWSER_PROVIDER must be either 'local' or 'browserless'"
+            )
+
+        self.browserless_token = os.getenv("BROWSERLESS_TOKEN", "").strip()
+        self.browserless_endpoint = os.getenv(
+            "BROWSERLESS_ENDPOINT",
+            "wss://production-sfo.browserless.io",
+        ).strip().rstrip("/")
+        self.browserless_profile = os.getenv(
+            "BROWSERLESS_PROFILE",
+            "",
+        ).strip()
+        self.browserless_session_timeout_ms = max(
+            30000,
+            int(os.getenv("BROWSERLESS_SESSION_TIMEOUT_MS", "120000")),
+        )
+        self.browserless_live_timeout_ms = max(
+            30000,
+            min(
+                int(os.getenv("BROWSERLESS_LIVE_TIMEOUT_MS", "90000")),
+                self.browserless_session_timeout_ms,
+            ),
+        )
+        if self.provider == "browserless" and not self.browserless_token:
+            raise RuntimeError(
+                "BROWSERLESS_TOKEN is required when BROWSER_PROVIDER=browserless"
+            )
 
         # MCP owns stdout and may not provide a usable stderr descriptor on
         # every platform, so browser diagnostics use the server's file logger.
@@ -211,9 +242,20 @@ class BrowserEngine:
 
         return args
 
+    def _browserless_ws_url(self) -> str:
+        """Build the private Browserless CDP endpoint without logging secrets."""
+        parameters = {
+            "token": self.browserless_token,
+            "timeout": str(self.browserless_session_timeout_ms),
+        }
+        if self.browserless_profile:
+            parameters["profile"] = self.browserless_profile
+        separator = "&" if "?" in self.browserless_endpoint else "?"
+        return f"{self.browserless_endpoint}{separator}{urlencode(parameters)}"
+
     async def _set_browser_window(self, page, state: str) -> None:
         """Minimize routine work and restore the real window for verification."""
-        if self.headless:
+        if self.provider == "browserless" or self.headless:
             return
         session = None
         try:
@@ -282,6 +324,20 @@ class BrowserEngine:
         force_persistent: bool = False,
     ):
         """Launch Chrome and optionally reuse a dedicated on-disk profile."""
+        if self.provider == "browserless":
+            browser = await playwright.chromium.connect_over_cdp(
+                self._browserless_ws_url(),
+                timeout=30000,
+            )
+            if not browser.contexts:
+                await browser.close()
+                raise RuntimeError(
+                    "Browserless connected without a default browser context"
+                )
+            context = browser.contexts[0]
+            self._log("Connected to Browserless remote Chrome")
+            return browser, context
+
         use_headless = self.headless if headless is None else headless
         use_persistent = self.persistent_session or force_persistent
 
@@ -316,8 +372,11 @@ class BrowserEngine:
         context = await browser.new_context(**context_options)
         return browser, context
 
-    @staticmethod
-    async def _close_browser_context(browser, context) -> None:
+    async def _close_browser_context(self, browser, context) -> None:
+        if self.provider == "browserless":
+            if browser and browser.is_connected():
+                await browser.close()
+            return
         try:
             await context.close()
         finally:
@@ -336,11 +395,6 @@ class BrowserEngine:
         """Detect a visible CAPTCHA or browser-verification interstitial."""
         if verification_signal is not None and verification_signal.is_set():
             return True
-
-        for frame in page.frames:
-            frame_url = frame.url.lower()
-            if "hcaptcha" in frame_url or "captcha" in frame_url:
-                return True
 
         selectors = (
             'iframe[src*="hcaptcha" i], iframe[src*="captcha" i], '
@@ -377,6 +431,70 @@ class BrowserEngine:
         except Exception:
             return False
 
+    async def _create_browserless_live_url(
+        self,
+        page,
+    ) -> tuple[str, str, int]:
+        """Create a short-lived interactive view for human verification."""
+        session = await page.context.new_cdp_session(page)
+        try:
+            result = await session.send(
+                "Browserless.liveURL",
+                {
+                    "interactable": True,
+                    "resizable": False,
+                    "showBrowserInterface": True,
+                    "timeout": self.browserless_live_timeout_ms,
+                    "instructions": {
+                        "layout": "panel",
+                        "summary": (
+                            "Complete the Copart verification shown in the "
+                            "browser. The vehicle search will resume "
+                            "automatically."
+                        ),
+                    },
+                },
+            )
+        finally:
+            try:
+                await session.detach()
+            except Exception:
+                pass
+
+        error = result.get("error") if isinstance(result, dict) else None
+        live_url = result.get("liveURL") if isinstance(result, dict) else None
+        if error or not live_url:
+            raise RuntimeError(
+                f"Browserless could not create a verification window: "
+                f"{error or 'missing live URL'}"
+            )
+        applied_timeout = int(
+            result.get("timeout") or self.browserless_live_timeout_ms
+        )
+        return (
+            str(live_url),
+            str(result.get("liveURLId") or ""),
+            applied_timeout,
+        )
+
+    @staticmethod
+    async def _close_browserless_live_url(page, live_url_id: str) -> None:
+        if not live_url_id:
+            return
+        session = await page.context.new_cdp_session(page)
+        try:
+            await session.send(
+                "Browserless.closeLiveURL",
+                {"liveURLId": live_url_id},
+            )
+        except Exception:
+            pass
+        finally:
+            try:
+                await session.detach()
+            except Exception:
+                pass
+
     async def _wait_for_human_verification(
         self,
         page,
@@ -395,19 +513,33 @@ class BrowserEngine:
         if not await self._verification_present(page, verification_signal):
             return False
 
-        await self._set_browser_window(page, "normal")
+        live_url_id = ""
+        event_data = {
+            "message": "Please complete the Copart verification."
+        }
+        if self.provider == "browserless":
+            (
+                live_url,
+                live_url_id,
+                live_timeout_ms,
+            ) = await self._create_browserless_live_url(page)
+            event_data.update({
+                "live_url": live_url,
+                "expires_in_seconds": live_timeout_ms // 1000,
+            })
+        else:
+            await self._set_browser_window(page, "normal")
+            event_data["message"] = (
+                "Please complete the Copart verification in the open "
+                "Chrome window."
+            )
 
         await emit_runtime_event(
             "verification_required",
-            {
-                "message": (
-                    "Please complete the Copart verification in the open "
-                    "Chrome window."
-                )
-            },
+            event_data,
         )
 
-        if self.headless:
+        if self.provider != "browserless" and self.headless:
             raise RuntimeError(
                 "Copart requires human verification. Set HEADLESS=False and retry "
                 "so the CAPTCHA can be completed in the browser window."
@@ -422,16 +554,31 @@ class BrowserEngine:
         except Exception:
             pass
 
+        deadline = (
+            time.monotonic() + (live_timeout_ms / 1000)
+            if self.provider == "browserless"
+            else None
+        )
         while True:
             try:
                 if await ready.count() and await ready.is_visible():
                     if not await self._verification_present(page):
                         self._log("Human verification completed; resuming search")
+                        await self._close_browserless_live_url(
+                            page,
+                            live_url_id,
+                        )
                         await emit_runtime_event("verification_completed", {})
                         await self._set_browser_window(page, "minimized")
                         return True
             except Exception:
                 pass
+            if deadline is not None and time.monotonic() >= deadline:
+                await self._close_browserless_live_url(page, live_url_id)
+                raise RuntimeError(
+                    "The Browserless verification window expired before "
+                    "verification was completed."
+                )
             await page.wait_for_timeout(1000)
 
     async def _apply_structured_filters(

@@ -42,6 +42,7 @@ export function CopartAssistantWidget() {
                 compact
                 messages={chat.messages}
                 status={chat.status}
+                verification={chat.verification}
                 onSend={chat.sendMessage}
               />
             )}

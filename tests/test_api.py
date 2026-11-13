@@ -19,7 +19,14 @@ class FakeAgentService:
     async def handle_message(self, message, session_id, publish):
         await publish("thinking", {})
         await publish("search_started", {"query": message})
-        await publish("verification_required", {"message": "Complete verification"})
+        await publish(
+            "verification_required",
+            {
+                "message": "Complete verification",
+                "live_url": "https://browser.example/live/session",
+                "expires_in_seconds": 90,
+            },
+        )
         await publish("verification_completed", {})
         search = {
             "search_id": "search-1",
@@ -87,6 +94,14 @@ class APITests(unittest.TestCase):
             self.assertNotIn("search_results", event_types)
             self.assertNotIn("assistant_message", event_types)
             self.assertIn("verification_required", event_types)
+            verification = next(
+                event for event in events
+                if event["type"] == "verification_required"
+            )
+            self.assertEqual(
+                verification["data"]["live_url"],
+                "https://browser.example/live/session",
+            )
             self.assertIn("verification_completed", event_types)
             self.assertEqual(event_types[-1], "completed")
             completed = events[-1]

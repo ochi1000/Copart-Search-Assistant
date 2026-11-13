@@ -48,10 +48,10 @@ export function useChatSession() {
             dispatch({ type: "status_changed", status: "thinking" }),
           onSearchStarted: () =>
             dispatch({ type: "status_changed", status: "searching" }),
-          onVerificationRequired: () =>
-            dispatch({ type: "status_changed", status: "verification" }),
+          onVerificationRequired: (verification) =>
+            dispatch({ type: "verification_required", verification }),
           onVerificationCompleted: () =>
-            dispatch({ type: "status_changed", status: "searching" }),
+            dispatch({ type: "verification_completed" }),
           onCompleted: (result) => dispatch({ type: "completed", result }),
           onFailed: (error) =>
             dispatch({ type: "failed", message: error.message }),

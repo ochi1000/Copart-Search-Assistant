@@ -34,6 +34,7 @@ export function ChatHomePage() {
               <ChatConversation
                 messages={chat.messages}
                 status={chat.status}
+                verification={chat.verification}
                 onSend={chat.sendMessage}
               />
             </div>

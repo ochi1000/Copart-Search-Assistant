@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   ChatStatus,
   CompletedResult,
+  VerificationRequired,
 } from "./chatTypes";
 
 export interface ChatState {
@@ -9,6 +10,7 @@ export interface ChatState {
   status: ChatStatus;
   sessionId?: string;
   operationId?: string;
+  verification?: VerificationRequired;
   error?: string;
 }
 
@@ -16,6 +18,8 @@ export type ChatAction =
   | { type: "user_message"; message: ChatMessage }
   | { type: "operation_started"; operationId: string; sessionId: string }
   | { type: "status_changed"; status: ChatStatus }
+  | { type: "verification_required"; verification: VerificationRequired }
+  | { type: "verification_completed" }
   | { type: "completed"; result: CompletedResult }
   | { type: "failed"; message: string }
   | { type: "cancelled" };
@@ -53,11 +57,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     case "status_changed":
       return { ...state, status: action.status };
+    case "verification_required":
+      return {
+        ...state,
+        status: "verification",
+        verification: action.verification,
+      };
+    case "verification_completed":
+      return {
+        ...state,
+        status: "searching",
+        verification: undefined,
+      };
     case "completed":
       return {
         ...state,
         status: "idle",
         operationId: undefined,
+        verification: undefined,
         messages: [
           ...state.messages,
           assistantMessage(action.result.message, {
@@ -71,6 +88,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         status: "idle",
         operationId: undefined,
+        verification: undefined,
         error: action.message,
         messages: [...state.messages, assistantMessage(action.message)],
       };
@@ -79,6 +97,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         status: "idle",
         operationId: undefined,
+        verification: undefined,
         messages: [
           ...state.messages,
           assistantMessage("I stopped that request. You can adjust it and try again."),

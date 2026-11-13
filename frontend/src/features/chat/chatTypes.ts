@@ -79,3 +79,9 @@ export interface PublicApiError {
   message: string;
   retryable?: boolean;
 }
+
+export interface VerificationRequired {
+  message?: string;
+  live_url?: string;
+  expires_in_seconds?: number;
+}

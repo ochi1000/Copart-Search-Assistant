@@ -501,8 +501,9 @@ class BrowserEngine:
         *,
         ready_selector: str,
         verification_signal=None,
+        force: bool = False,
     ) -> bool:
-        """Wait indefinitely for a user to complete a detected verification step."""
+        """Wait for a user when verification or an unknown blocking page appears."""
         ready = page.locator(ready_selector).first
         try:
             if await ready.count() and await ready.is_visible():
@@ -510,12 +511,15 @@ class BrowserEngine:
         except Exception:
             pass
 
-        if not await self._verification_present(page, verification_signal):
+        if not force and not await self._verification_present(
+            page,
+            verification_signal,
+        ):
             return False
 
         live_url_id = ""
         event_data = {
-            "message": "Please complete the Copart verification."
+            "message": "Copart needs your attention before the search can continue."
         }
         if self.provider == "browserless":
             (
@@ -530,8 +534,8 @@ class BrowserEngine:
         else:
             await self._set_browser_window(page, "normal")
             event_data["message"] = (
-                "Please complete the Copart verification in the open "
-                "Chrome window."
+                "Please check the open Chrome window and complete any "
+                "Copart prompt."
             )
 
         await emit_runtime_event(
@@ -1071,24 +1075,45 @@ class BrowserEngine:
 
                 # Locate search input
                 search_input = page.locator("#input-search, input[placeholder*='Search' i]").first
-                if not await search_input.is_visible():
-                    raise Exception("Could not find visible search bar on Copart.")
+                try:
+                    await search_input.wait_for(state="visible", timeout=8000)
+                except Exception:
+                    pass
 
-                verification_signal.clear()
-                self._log(f"Searching: '{full_query}'")
-                await search_input.click()
-                await search_input.fill("")
-                await search_input.press_sequentially(full_query, delay=35)
-                await page.wait_for_timeout(800)
+                query_id = f"{uuid.uuid4()}-{int(time.time() * 1000)}"
+                results_url = (
+                    "https://www.copart.com/lotSearchResults?free=true"
+                    f"&query={quote(full_query)}&qId={query_id}"
+                )
+                if await search_input.is_visible():
+                    verification_signal.clear()
+                    self._log(f"Searching: '{full_query}'")
+                    await search_input.click()
+                    await search_input.fill("")
+                    await search_input.press_sequentially(full_query, delay=35)
+                    await page.wait_for_timeout(800)
 
-                search_btn = page.locator(
-                    'button[data-track-id="search-icon-button"], '
-                    'button.header_magnifying_glass[aria-label="Search"]'
-                ).first
-                if await search_btn.is_visible():
-                    await search_btn.click()
+                    search_btn = page.locator(
+                        'button[data-track-id="search-icon-button"], '
+                        'button.header_magnifying_glass[aria-label="Search"]'
+                    ).first
+                    if await search_btn.is_visible():
+                        await search_btn.click()
+                    else:
+                        await search_input.press("Enter")
                 else:
-                    await search_input.press("Enter")
+                    self._log(
+                        "Copart homepage search input was unavailable; "
+                        "opening the inventory URL directly"
+                    )
+                    try:
+                        await page.goto(
+                            results_url,
+                            wait_until="domcontentloaded",
+                            timeout=25000,
+                        )
+                    except Exception as exc:
+                        self._log(f"Direct results navigation did not settle: {exc}")
 
                 self._log("Waiting for inventory to load...")
                 await page.wait_for_timeout(7000)
@@ -1102,11 +1127,6 @@ class BrowserEngine:
                         await page.wait_for_timeout(5000)
                     else:
                         self._log("Search button did not submit; opening Copart results URL")
-                        query_id = f"{uuid.uuid4()}-{int(time.time() * 1000)}"
-                        results_url = (
-                            "https://www.copart.com/lotSearchResults?free=true"
-                            f"&query={quote(full_query)}&qId={query_id}"
-                        )
                         try:
                             await page.goto(
                                 results_url,
@@ -1121,25 +1141,46 @@ class BrowserEngine:
                         'tr[role="row"], tr.p-selectable-row, tbody tr'
                     ).count()
                     if initial_rows == 0:
-                        await self._wait_for_human_verification(
-                            page,
-                            ready_selector='tr[role="row"], tr.p-selectable-row, tbody tr',
-                            verification_signal=verification_signal,
+                        empty_state = page.get_by_text(
+                            re.compile(
+                                r"no (lots|vehicles|results).*(found|available)",
+                                re.IGNORECASE,
+                            )
+                        ).first
+                        has_empty_state = bool(
+                            await empty_state.count()
+                            and await empty_state.is_visible()
                         )
+                        if not has_empty_state:
+                            await self._wait_for_human_verification(
+                                page,
+                                ready_selector='tr[role="row"], tr.p-selectable-row, tbody tr',
+                                verification_signal=verification_signal,
+                                force=(self.provider == "browserless"),
+                            )
                         initial_rows = await page.locator(
                             'tr[role="row"], tr.p-selectable-row, tbody tr'
                         ).count()
 
                     if initial_rows == 0:
-                        page_title = await page.title()
-                        body_text = await page.locator("body").inner_text()
-                        self._log(
-                            f"Search submission diagnostics: url={page.url!r}, "
-                            f"title={page_title!r}, body={body_text[:500]!r}"
-                        )
-                        raise RuntimeError(
-                            "Copart did not load inventory after search submission and URL fallback."
-                        )
+                        empty_state = page.get_by_text(
+                            re.compile(
+                                r"no (lots|vehicles|results).*(found|available)",
+                                re.IGNORECASE,
+                            )
+                        ).first
+                        if await empty_state.count() and await empty_state.is_visible():
+                            self._log("Copart returned a valid empty-results page")
+                        else:
+                            page_title = await page.title()
+                            body_text = await page.locator("body").inner_text()
+                            self._log(
+                                f"Search submission diagnostics: url={page.url!r}, "
+                                f"title={page_title!r}, body={body_text[:500]!r}"
+                            )
+                            raise RuntimeError(
+                                "Copart did not load inventory after search submission and URL fallback."
+                            )
 
                 filter_application = await self._apply_structured_filters(
                     page,

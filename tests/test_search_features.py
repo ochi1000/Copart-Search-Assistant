@@ -243,6 +243,19 @@ class FilterModelTests(unittest.TestCase):
 
 
 class BrowserProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_imperva_error_is_recognized_as_hard_access_denial(self):
+        body = SimpleNamespace(
+            inner_text=AsyncMock(
+                return_value=(
+                    "Access denied Error 15. This request was blocked by "
+                    "our security service. Powered by Imperva."
+                )
+            )
+        )
+        page = SimpleNamespace(locator=lambda _: body)
+
+        self.assertTrue(await BrowserEngine._access_denied_present(page))
+
     def test_provider_diagnostics_redact_credentials(self):
         with patch.dict(
             os.environ,

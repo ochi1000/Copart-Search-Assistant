@@ -30,7 +30,7 @@ if (-not (Test-Path -LiteralPath $nodeModulesDirectory)) {
 }
 
 if ($PrepareOnly) {
-    Write-Host "Frontend is ready." -ForegroundColor Green
+    Write-Host "Frontend setup is ready." -ForegroundColor Green
     return
 }
 

@@ -15,6 +15,7 @@ from backend.copart.models import US_STATE_CODES, US_STATE_MAP, VehicleFilterCon
 
 load_dotenv()
 
+
 class BrowserEngine:
     def __init__(
         self,
@@ -62,7 +63,7 @@ class BrowserEngine:
         self._log_callback = log_callback
 
         self.chrome_path = os.getenv(
-            "CHROME_PATH", 
+            "CHROME_PATH",
             r"C:\Program Files\Google\Chrome\Application\chrome.exe"
         )
         self.persistent_session = (
@@ -431,6 +432,22 @@ class BrowserEngine:
         except Exception:
             return False
 
+    @staticmethod
+    async def _access_denied_present(page) -> bool:
+        """Recognize a hard security-service denial that a user cannot solve."""
+        try:
+            body_text = (await page.locator("body").inner_text()).lower()
+        except Exception:
+            return False
+        return (
+            "access denied" in body_text
+            and (
+                "error 15" in body_text
+                or "blocked by our security service" in body_text
+                or "powered by imperva" in body_text
+            )
+        )
+
     async def _create_browserless_live_url(
         self,
         page,
@@ -511,6 +528,14 @@ class BrowserEngine:
         except Exception:
             pass
 
+        if await self._access_denied_present(page):
+            if self.provider == "browserless":
+                raise RuntimeError(
+                    "Copart denied access from the remote browser network. "
+                    "Use the local Chrome setup or an approved Copart data source."
+                )
+            raise RuntimeError("Copart denied access from the current network.")
+
         if not force and not await self._verification_present(
             page,
             verification_signal,
@@ -549,10 +574,16 @@ class BrowserEngine:
                 "so the CAPTCHA can be completed in the browser window."
             )
 
-        self._log(
-            "HUMAN ACTION REQUIRED: Complete Copart CAPTCHA/verification in the "
-            "open Chrome window. The tool will wait without a timeout."
-        )
+        if self.provider == "browserless":
+            self._log(
+                "HUMAN ACTION REQUIRED: Complete the Copart prompt in the "
+                "embedded live browser before it expires."
+            )
+        else:
+            self._log(
+                "HUMAN ACTION REQUIRED: Complete the Copart prompt in the open "
+                "Chrome window. The tool will continue waiting."
+            )
         try:
             await page.bring_to_front()
         except Exception:

@@ -84,8 +84,45 @@ if (-not $configuredKey) {
     throw "Set $requiredKey in .env before starting the backend."
 }
 
+$browserProvider = [Environment]::GetEnvironmentVariable("BROWSER_PROVIDER")
+if (-not $browserProvider) {
+    $browserProvider = Get-DotEnvValue "BROWSER_PROVIDER"
+}
+if (-not $browserProvider) {
+    $browserProvider = "local"
+}
+
+switch ($browserProvider.ToLowerInvariant()) {
+    "local" {
+        $chromePath = [Environment]::GetEnvironmentVariable("CHROME_PATH")
+        if (-not $chromePath) {
+            $chromePath = Get-DotEnvValue "CHROME_PATH"
+        }
+        if (-not $chromePath) {
+            $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        }
+        if (-not (Test-Path -LiteralPath $chromePath)) {
+            throw "Google Chrome was not found at '$chromePath'. Set CHROME_PATH in .env."
+        }
+    }
+    "browserless" {
+        $browserlessToken = [Environment]::GetEnvironmentVariable(
+            "BROWSERLESS_TOKEN"
+        )
+        if (-not $browserlessToken) {
+            $browserlessToken = Get-DotEnvValue "BROWSERLESS_TOKEN"
+        }
+        if (-not $browserlessToken) {
+            throw "Set BROWSERLESS_TOKEN when BROWSER_PROVIDER=browserless."
+        }
+    }
+    default {
+        throw "BROWSER_PROVIDER must be either 'local' or 'browserless'."
+    }
+}
+
 if ($PrepareOnly) {
-    Write-Host "Backend is ready." -ForegroundColor Green
+    Write-Host "Backend setup is ready." -ForegroundColor Green
     return
 }
 

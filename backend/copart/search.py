@@ -43,6 +43,7 @@ def _redact_sensitive(value: str) -> str:
         flags=re.IGNORECASE,
     )
 
+
 def log_debug(msg: str):
     try:
         max_bytes = int(os.getenv("DEBUG_LOG_MAX_BYTES", "2000000"))
@@ -52,6 +53,7 @@ def log_debug(msg: str):
             f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] [Server] {msg}\n")
     except Exception:
         pass
+
 
 # Instantiate the Copart browser adapter used by the search application service.
 engine = BrowserEngine(log_callback=log_debug)

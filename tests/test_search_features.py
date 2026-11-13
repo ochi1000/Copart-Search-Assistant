@@ -143,6 +143,13 @@ class FilterModelTests(unittest.TestCase):
         self.assertIn("Hybrid", constraints.featured_items)
         self.assertIn("Buy It Now", constraints.featured_items)
 
+    def test_hybrid_vehicles_alias_uses_copart_featured_item(self):
+        constraints = VehicleFilterConstraints(
+            query="vehicles",
+            featured_items=["Hybrid Vehicles"],
+        )
+        self.assertEqual(constraints.featured_items, ["Hybrid"])
+
     def test_electric_fuel_value_uses_copart_featured_item(self):
         constraints = VehicleFilterConstraints(
             query="vehicles",
@@ -236,6 +243,19 @@ class FilterModelTests(unittest.TestCase):
 
 
 class BrowserProviderTests(unittest.IsolatedAsyncioTestCase):
+    def test_provider_diagnostics_redact_credentials(self):
+        with patch.dict(
+            os.environ,
+            {"BROWSERLESS_TOKEN": "browser-secret"},
+            clear=False,
+        ):
+            message = server._redact_sensitive(
+                "connect wss://example.test?token=browser-secret&timeout=30000"
+            )
+
+        self.assertNotIn("browser-secret", message)
+        self.assertIn("token=[redacted]", message)
+
     def test_browserless_connection_url_encodes_secrets_and_profile(self):
         with patch.dict(
             os.environ,

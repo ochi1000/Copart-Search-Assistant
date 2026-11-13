@@ -3,6 +3,7 @@ import os
 import datetime
 import hashlib
 import json
+import logging
 import re
 import time
 import traceback
@@ -21,6 +22,26 @@ from backend.copart.models import (
 load_dotenv()
 
 LOG_FILE = str(PROJECT_ROOT / "debug.log")
+logger = logging.getLogger(__name__)
+
+
+def _redact_sensitive(value: str) -> str:
+    """Keep provider diagnostics useful without writing credentials to logs."""
+    redacted = value
+    secrets = (
+        os.getenv("BROWSERLESS_TOKEN", "").strip(),
+        os.getenv("GROQ_API_KEY", "").strip(),
+        os.getenv("OPENAI_API_KEY", "").strip(),
+    )
+    for secret in secrets:
+        if secret:
+            redacted = redacted.replace(secret, "[redacted]")
+    return re.sub(
+        r"([?&](?:token|key)=)[^&\s'\"]+",
+        r"\1[redacted]",
+        redacted,
+        flags=re.IGNORECASE,
+    )
 
 def log_debug(msg: str):
     try:
@@ -35,6 +56,10 @@ def log_debug(msg: str):
 # Instantiate the Copart browser adapter used by the search application service.
 engine = BrowserEngine(log_callback=log_debug)
 log_debug("Copart search service initialized with BrowserEngine")
+logger.info(
+    "Copart search initialized with browser provider '%s'",
+    engine.provider,
+)
 
 
 @dataclass
@@ -778,8 +803,11 @@ async def search_copart_vehicles(
         )
         return result
     except Exception as e:
-        err_msg = f"{type(e).__name__}: {str(e)}"
-        log_debug(f"ERROR in search_copart_vehicles: {err_msg}\n{traceback.format_exc()}")
+        err_msg = _redact_sensitive(f"{type(e).__name__}: {str(e)}")
+        trace = _redact_sensitive(traceback.format_exc())
+        log_debug(f"ERROR in search_copart_vehicles: {err_msg}\n{trace}")
+        if not isinstance(e, ValueError):
+            logger.error("Copart vehicle search failed: %s", err_msg)
         return {
             "error": err_msg,
             "vehicles": [],
@@ -814,8 +842,10 @@ async def get_copart_vehicle_details(
         log_debug(f"Inspection successful for {lot_id_or_url}")
         return result
     except Exception as e:
-        err_msg = f"{type(e).__name__}: {str(e)}"
-        log_debug(f"ERROR in get_copart_vehicle_details: {err_msg}\n{traceback.format_exc()}")
+        err_msg = _redact_sensitive(f"{type(e).__name__}: {str(e)}")
+        trace = _redact_sensitive(traceback.format_exc())
+        log_debug(f"ERROR in get_copart_vehicle_details: {err_msg}\n{trace}")
+        logger.error("Copart vehicle detail failed: %s", err_msg)
         return {
             "error": err_msg,
             "vehicle_title": "Error inspecting vehicle lot",

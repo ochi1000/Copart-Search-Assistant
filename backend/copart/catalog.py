@@ -48,6 +48,8 @@ FEATURED_ITEM_ALIASES = {
     "public": "Public and General Business",
     "engine start": "Engine Start Program",
     "enhanced": "Enhanced Vehicles",
+    "hybrid vehicle": "Hybrid",
+    "hybrid vehicles": "Hybrid",
     "new": "New Items",
     "featured": "Featured Vehicles",
     "offsite": "Offsite Sales",

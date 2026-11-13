@@ -1,0 +1,16 @@
+.env
+.copart-profile/
+.venv/
+.run/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+debug.log*
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

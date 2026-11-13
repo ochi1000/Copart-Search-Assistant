@@ -1,0 +1,36 @@
+.message {
+  min-width: 0;
+}
+
+.user {
+  justify-self: end;
+  max-width: min(78%, 38rem);
+}
+
+.user .text {
+  padding: 0.8rem 1rem;
+  border-radius: 1.1rem 1.1rem 0.32rem 1.1rem;
+  color: var(--color-text);
+  background: var(--color-user-message);
+  line-height: 1.5;
+}
+
+.assistant {
+  width: 100%;
+  max-width: 100%;
+}
+
+.label {
+  display: block;
+  margin-bottom: 0.42rem;
+  color: var(--color-primary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.025em;
+}
+
+.assistant .text {
+  color: var(--color-text);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}

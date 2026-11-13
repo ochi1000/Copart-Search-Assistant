@@ -1,0 +1,11 @@
+.conversation {
+  display: grid;
+  width: min(100%, var(--chat-width));
+  gap: 1.65rem;
+  align-content: start;
+}
+
+.compact {
+  width: 100%;
+  gap: 1.2rem;
+}

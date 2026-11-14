@@ -12,6 +12,11 @@ This is a conversational vehicle-search assistant that turns natural-language re
 - Google Chrome (For Browser Agent)
 - A Groq API key, or an OpenAI API key (check email for Groq API Key)
 
+> [!IMPORTANT]
+> Run the setup commands below in **Windows PowerShell**. The documented
+> commands and runner scripts are Windows-specific; do not use Git Bash, WSL,
+> or a macOS/Linux shell for this setup.
+
 Clone the repository and enter its directory:
 
 ```powershell
@@ -35,7 +40,7 @@ BROWSER_PROVIDER=local
 HEADLESS=False
 ```
 
-### Option 1: start everything
+### Start the application
 
 Run:
 
@@ -44,21 +49,6 @@ Run:
 ```
 
 The script creates the Python virtual environment, installs backend and frontend dependencies, starts both services, and opens the application at `http://127.0.0.1:5173`.
-
-
-### Option 2: start each service separately
-
-Start the backend in one terminal:
-
-```powershell
-.\run-backend.cmd
-```
-
-Start the frontend in another terminal:
-
-```powershell
-.\run-frontend.cmd
-```
 
 The backend API is available at `http://127.0.0.1:8000`, and its health endpoint is `/api/v1/health`.
 

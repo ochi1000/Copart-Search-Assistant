@@ -11,7 +11,6 @@ Set-StrictMode -Version Latest
 
 $projectRoot = $PSScriptRoot
 $frontendDirectory = Join-Path $projectRoot "frontend"
-$runDirectory = Join-Path $projectRoot ".run"
 $backendScript = Join-Path $projectRoot "run-backend.ps1"
 $frontendScript = Join-Path $projectRoot "run-frontend.ps1"
 $pythonExecutable = Join-Path $projectRoot ".venv\Scripts\python.exe"
@@ -35,7 +34,7 @@ function Wait-ForService {
     while ((Get-Date) -lt $deadline) {
         $Process.Refresh()
         if ($Process.HasExited) {
-            throw "$Name stopped before it became ready. Check the logs in .run."
+            throw "$Name stopped before it became ready. Run its individual script for details."
         }
         try {
             $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
@@ -67,20 +66,6 @@ Write-Host "Preparing the Copart Search Assistant..." -ForegroundColor Cyan
 Assert-PortAvailable -Port $BackendPort
 Assert-PortAvailable -Port $FrontendPort
 
-New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
-$logFiles = @(
-    "backend.out.log",
-    "backend.err.log",
-    "frontend.out.log",
-    "frontend.err.log"
-)
-foreach ($logFile in $logFiles) {
-    $path = Join-Path $runDirectory $logFile
-    if (Test-Path -LiteralPath $path) {
-        Remove-Item -LiteralPath $path -Force
-    }
-}
-
 $backendProcess = $null
 $frontendProcess = $null
 try {
@@ -91,8 +76,6 @@ try {
         -ArgumentList @("-m", "backend.main") `
         -WorkingDirectory $projectRoot `
         -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $runDirectory "backend.out.log") `
-        -RedirectStandardError (Join-Path $runDirectory "backend.err.log") `
         -PassThru
 
     Wait-ForService -Name "Backend" -Url $backendHealthUrl -Process $backendProcess
@@ -111,8 +94,6 @@ try {
         ) `
         -WorkingDirectory $frontendDirectory `
         -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $runDirectory "frontend.out.log") `
-        -RedirectStandardError (Join-Path $runDirectory "frontend.err.log") `
         -PassThru
 
     Wait-ForService -Name "Frontend" -Url $frontendUrl -Process $frontendProcess
@@ -129,7 +110,7 @@ try {
         $backendProcess.Refresh()
         $frontendProcess.Refresh()
         if ($backendProcess.HasExited -or $frontendProcess.HasExited) {
-            throw "A service stopped unexpectedly. Check the logs in .run."
+            throw "A service stopped unexpectedly. Run its individual script for details."
         }
         Start-Sleep -Seconds 1
     }
